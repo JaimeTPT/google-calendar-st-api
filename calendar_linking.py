@@ -41,7 +41,7 @@ GOOGLE_CREDENTIALS_FILE = 'credentials.json'
 SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/4160781343/technicians'
 
 # --- FUNCTIONS ---
-
+# Hello
 def get_google_users():
   credentials = service_account.Credentials.from_service_account_file(
     GOOGLE_CREDENTIALS_FILE,
