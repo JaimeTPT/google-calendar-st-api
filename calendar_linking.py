@@ -1,17 +1,44 @@
 import requests
+import json
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Access variables
+client_id = os.getenv("CLIENT_ID")
+client_secret = os.getenv("CLIENT_SECRET")
+servicetitan_api_key = os.getenv("SERVICETITAN_API_KEY")
+google_admin_user = os.getenv("GOOGLE_ADMIN_USER")
+
+token_url = 'https://auth.servicetitan.io/connect/token'
+
+data = {
+  'grant_type': 'client_credentials',
+  'client_id': client_id,
+  'client_secret': client_secret,
+  'scope': 'api'
+}
+
+response = requests.post(token_url, data=data)
+## DEBUG
+# print('-------------------------')
+# print(json.dumps(response.json(), indent=2))
+# print('-------------------------')
+
+access_token = response.json()['access_token']
 
 # --- CONFIGURATION ---
 
 # Google
 GOOGLE_SCOPES = ['https://www.googleapis.com/auth/admin.directory.user.readonly']
 GOOGLE_CREDENTIALS_FILE = 'credentials.json'
-GOOGLE_ADMIN_USER = 'sam@amstillroofing.com'  # delegated admin
 
 # ServiceTitan
-SERVICETITAN_API_URL = 'https://api.servicetitan.io/v1'
-SERVICETITAN_API_KEY = 'your_servicetitan_api_key'
+SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/4160781343/technicians'
 
 # --- FUNCTIONS ---
 
@@ -19,7 +46,7 @@ def get_google_users():
   credentials = service_account.Credentials.from_service_account_file(
     GOOGLE_CREDENTIALS_FILE,
     scopes=GOOGLE_SCOPES,
-    subject=GOOGLE_ADMIN_USER
+    subject=google_admin_user
   )
   service = build('admin', 'directory_v1', credentials=credentials)
   results = service.users().list(customer='my_customer', maxResults=200, orderBy='email').execute()
@@ -28,7 +55,8 @@ def get_google_users():
 def get_servicetitan_technicians():
   url = f"{SERVICETITAN_API_URL}/technicians"
   headers = {
-    'Authorization': f'Bearer {SERVICETITAN_API_KEY}',
+    'Authorization': f'Bearer {access_token}',
+    'ST-App-Key': servicetitan_api_key,
     'Content-Type': 'application/json'
   }
   technicians = []
@@ -77,9 +105,21 @@ def match_users_and_techs(google_users, technicians):
 if __name__ == "__main__":
   print("Fetching Google Workspace users...")
   google_users = get_google_users()
+  n = 1
+  for user in google_users:
+    # print(f'Technician {n}: {user.google_name}')
+    print(f'User {n}')
+    print(f'{user['name']['fullName']}')
+    print(f'{user['primaryEmail']}')
+    print('--------------------------')
+    n += 1
 
   print("Fetching ServiceTitan technicians...")
   servicetitan_techs = get_servicetitan_technicians()
+  n = 1
+  for tech in servicetitan_techs:
+    print(f'Technician {n}: {tech}')
+    n += 1
 
   print("Matching users...")
   matches = match_users_and_techs(google_users, servicetitan_techs)
