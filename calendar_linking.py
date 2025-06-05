@@ -8,29 +8,6 @@ import os
 # Load environment variables from .env file
 load_dotenv()
 
-# Access variables
-client_id = os.getenv("CLIENT_ID")
-client_secret = os.getenv("CLIENT_SECRET")
-servicetitan_api_key = os.getenv("SERVICETITAN_API_KEY")
-google_admin_user = os.getenv("GOOGLE_ADMIN_USER")
-
-token_url = 'https://auth.servicetitan.io/connect/token'
-
-data = {
-  'grant_type': 'client_credentials',
-  'client_id': client_id,
-  'client_secret': client_secret,
-  'scope': 'api'
-}
-
-response = requests.post(token_url, data=data)
-## DEBUG
-# print('-------------------------')
-# print(json.dumps(response.json(), indent=2))
-# print('-------------------------')
-
-access_token = response.json()['access_token']
-
 # --- CONFIGURATION ---
 
 # Google
@@ -43,6 +20,8 @@ SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/416078134
 # --- FUNCTIONS ---
 
 def get_google_users():
+  google_admin_user = os.getenv("GOOGLE_ADMIN_USER")
+
   credentials = service_account.Credentials.from_service_account_file(
     GOOGLE_CREDENTIALS_FILE,
     scopes=GOOGLE_SCOPES,
@@ -52,7 +31,93 @@ def get_google_users():
   results = service.users().list(customer='my_customer', maxResults=200, orderBy='email').execute()
   return results.get('users', [])
 
+def get_calendars():
+  google_admin_user = os.getenv("GOOGLE_ADMIN_USER")
+
+  scopes = ['https://www.googleapis.com/auth/calendar.readonly']
+  credentials = service_account.Credentials.from_service_account_file(
+    GOOGLE_CREDENTIALS_FILE,
+    scopes=scopes,
+    subject=google_admin_user
+  )
+  service = build('calendar', 'v3', credentials=credentials)
+
+  calendar_ids = []
+  page_token = None
+
+  while True:
+    response = service.calendarList().list(pageToken=page_token).execute()
+    print(json.dumps(response, indent=2))
+    for calendar in response.get('items', []):
+      calendar_ids.append({
+        'id': calendar['id'],
+        'summary': calendar.get('summary', '(no summary)')
+      })
+    page_token = response.get('nextPageToken')
+    if not page_token:
+      break
+
+  return calendar_ids
+
+def get_user_calendar_service(user_email):
+  scopes = ['https://www.googleapis.com/auth/calendar.readonly']
+  credentials = service_account.Credentials.from_service_account_file(
+    GOOGLE_CREDENTIALS_FILE,
+    scopes=scopes
+  ).with_subject(user_email)  # ← Impersonate the user
+  return build('calendar', 'v3', credentials=credentials)
+
+def get_calendar_events(calendar_id):
+  scopes = ['https://www.googleapis.com/auth/calendar.readonly']
+  credentials = service_account.Credentials.from_service_account_file(
+    GOOGLE_CREDENTIALS_FILE,
+    scopes=scopes,
+    # subject=google_admin_user
+  )
+  service = build('calendar', 'v3', credentials=credentials)
+
+  events = []
+  page_token = None
+
+  while True:
+    response = service.events().list(
+      calendarId=calendar_id,
+      pageToken=page_token,
+      maxResults=2500,  # max allowed
+      singleEvents=True,
+      orderBy='startTime'
+    ).execute()
+
+    events.extend(response.get('items', []))
+    page_token = response.get('nextPageToken')
+    if not page_token:
+      break
+
+  return events
+
 def get_servicetitan_technicians():
+  # Access variables
+  client_id = os.getenv("CLIENT_ID")
+  client_secret = os.getenv("CLIENT_SECRET")
+  servicetitan_api_key = os.getenv("SERVICETITAN_API_KEY")
+
+  token_url = 'https://auth.servicetitan.io/connect/token'
+
+  data = {
+    'grant_type': 'client_credentials',
+    'client_id': client_id,
+    'client_secret': client_secret,
+    'scope': 'api'
+  }
+
+  response = requests.post(token_url, data=data)
+  ## DEBUG
+  print('-------------------------')
+  print(json.dumps(response.json(), indent=2))
+  print('-------------------------')
+
+  access_token = response.json()['access_token']
+
   url = f"{SERVICETITAN_API_URL}/technicians"
   headers = {
     'Authorization': f'Bearer {access_token}',
@@ -103,17 +168,60 @@ def match_users_and_techs(google_users, technicians):
 # --- MAIN SCRIPT ---
 
 if __name__ == "__main__":
+  ## Get list of Users from Google Workspace
   print("Fetching Google Workspace users...")
   google_users = get_google_users()
   n = 1
   for user in google_users:
     # print(f'Technician {n}: {user.google_name}')
     print(f'User {n}')
-    print(f'{user['name']['fullName']}')
-    print(f'{user['primaryEmail']}')
+    print(user['name']['fullName'])
+    print(user['primaryEmail'])
+    print(user['id'])
     print('--------------------------')
     n += 1
 
+  ## Get list of calendars in Google Workspace
+  # print("Fetching Google Workspace calendars...")
+  # google_calendars = get_calendars()
+  # print(len(google_calendars))
+  # n = 1
+  # for calendar in google_calendars:
+  #   print(f'Calendar {n}')
+  #   # print(calendar['name']['fullName'])
+  #   # print(calendar['primaryEmail'])
+  #   # print(calendar['id'])
+  #   print(calendar)
+  #   print('--------------------------')
+  #   n += 1
+
+  ## Get list of events from google calendars
+  user_email = 'will@amstillroofing.com'
+  calendar_service = get_user_calendar_service(user_email)
+  events = calendar_service.events().list(calendarId=user_email).execute()
+  n = 1
+  for event in events['items']:
+    # print(f'Technician {n}: {user.google_name}')
+    print(f'Event {n}')
+    print(event)
+    # print(user['primaryEmail'])
+    # print(user['id'])
+    print('--------------------------')
+    n += 1
+
+  ## We don't need this??
+  # calendar_events = get_calendar_events('zac@amstillroofing.com')
+  # n = 1
+  # for event in calendar_events:
+  #   # print(f'Technician {n}: {user.google_name}')
+  #   print(f'Event {n}')
+  #   print(event)
+  #   # print(user['primaryEmail'])
+  #   # print(user['id'])
+  #   print('--------------------------')
+  #   n += 1
+
+  ## Get list of ServiceTitan technicians
   print("Fetching ServiceTitan technicians...")
   servicetitan_techs = get_servicetitan_technicians()
   n = 1
@@ -121,10 +229,10 @@ if __name__ == "__main__":
     print(f'Technician {n}: {tech}')
     n += 1
 
-  print("Matching users...")
-  matches = match_users_and_techs(google_users, servicetitan_techs)
+  # print("Matching users...")
+  # matches = match_users_and_techs(google_users, servicetitan_techs)
 
-  for match in matches:
-    print(match)
+  # for match in matches:
+  #   print(match)
 
-  print(f"\nTotal matches found: {len(matches)}")
+  # print(f"\nTotal matches found: {len(matches)}")
