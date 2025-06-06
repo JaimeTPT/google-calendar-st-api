@@ -171,17 +171,16 @@ def match_users_and_techs(google_users, technicians):
 
 if __name__ == "__main__":
   ## Get list of Users from Google Workspace
-  print("Fetching Google Workspace users...")
-  google_users = get_google_users()
-  n = 1
-  for user in google_users:
-    # print(f'Technician {n}: {user.google_name}')
-    print(f'User {n}')
-    print(user['name']['fullName'])
-    print(user['primaryEmail'])
-    print(user['id'])
-    print('--------------------------')
-    n += 1
+  # print("Fetching Google Workspace users...")
+  # google_users = get_google_users()
+  # n = 1
+  # for user in google_users:
+  #   print(f'User {n}')
+  #   print(user['name']['fullName'])
+  #   print(user['primaryEmail'])
+  #   print(user['id'])
+  #   print('--------------------------')
+  #   n += 1
 
   ## Get list of calendars in Google Workspace
   # print("Fetching Google Workspace calendars...")
@@ -225,13 +224,29 @@ if __name__ == "__main__":
 
 
   ## Get list of ServiceTitan technicians
-  # access_token = login_to_st()
-  # print("Fetching ServiceTitan technicians...")
-  # servicetitan_techs = get_servicetitan_technicians(access_token)
+  access_token = login_to_st()
+  print("Fetching ServiceTitan technicians...")
+  servicetitan_techs = get_servicetitan_technicians(access_token)
   # n = 1
-  # for tech in servicetitan_techs:
-  #   print(f'Technician {n}: {tech}')
-  #   n += 1
+  techs = []
+  for tech in servicetitan_techs:
+    # print(f'Technician {n}:')
+    # print(tech['id'])
+    # print(tech['userId'])
+    # print(tech['name'])
+    # print(tech['email'])
+    # print('-----------------')
+    # n += 1
+    new_tech = {
+      'id': tech['id'],
+      'userId': tech['userId'],
+      'name': tech['name'],
+      'email': tech['email']
+    }
+    techs.append(new_tech)
+
+    with open('st_techs.json', 'w') as file:
+      json.dump(techs, file, indent=2)
 
   # print("Matching users...")
   # matches = match_users_and_techs(google_users, servicetitan_techs)
