@@ -3,3 +3,5 @@
 .env
 /st_techs.json
 /google_users.json
+/user_matches.json
+/non_matches.json

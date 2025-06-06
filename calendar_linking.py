@@ -148,24 +148,63 @@ def match_users_and_techs(google_users, technicians):
   matches = []
 
   for user in google_users:
-    g_email = user.get('primaryEmail', '').lower()
-    g_name = f"{user.get('name', {}).get('givenName', '')} {user.get('name', {}).get('familyName', '')}".strip().lower()
+    g_email = user['email'].lower().strip()
+    g_name = user['name'].strip().lower().strip()
+    alias_email = g_email.split('@')
+    alias_email = alias_email[0] + '+1@' + alias_email[1]
 
     for tech in technicians:
-      t_email = tech.get('email', '').lower()
-      t_name = tech.get('name', '').lower()
+      t_email = tech['email']
+      if t_email:
+        t_email = t_email.lower().strip()
+      t_name = tech['name'].lower().strip()
 
-      if g_email == t_email or g_name in t_name:
+      if g_email == t_email or alias_email == t_email or g_name in t_name:
         matches.append({
+          'google_id': user['id'],
           'google_email': g_email,
           'google_name': g_name,
-          'servicetitan_id': tech.get('id'),
+          'servicetitan_id': tech['id'],
           'servicetitan_name': t_name,
-          'servicetitan_email': t_email,
+          'servicetitan_email': t_email
         })
         break  # stop at first match for each Google user
 
   return matches
+
+def find_non_matching_users(google_users, technicians, matches):
+  non_matches = []
+  # for user in google_users:
+  #   match_found = False
+  #   for match in matches:
+  #     if user['id'] == match['google_id']:
+  #       match_found = True
+  #       break
+  #   if not match_found:
+  #     non_match = {
+  #       'system': 'google',
+  #       'id': user['id'],
+  #       'name': user['name'],
+  #       'email': user['email']
+  #     }
+  #     non_matches.append(non_match)
+  
+  for tech in technicians:
+    match_found = False
+    for match in matches:
+      if tech['id'] == match['servicetitan_id']:
+        match_found = True
+        break
+    if not match_found:
+      non_match = {
+        'system': 'servicetitan',
+        'id': tech['id'],
+        'name': tech['name'],
+        'email': tech['email']
+      }
+      non_matches.append(non_match)
+  
+  return non_matches
 
 # --- MAIN SCRIPT ---
 
@@ -173,12 +212,6 @@ if __name__ == "__main__":
   ## Get list of Users from Google Workspace
   print("Fetching Google Workspace users...")
   google_users = get_google_users()
-  # n = 1
-  # for user in google_users:
-  #   print(f'User {n}')
-  #   print(user)
-  #   print('--------------------------')
-  #   n += 1
   g_users = []
   for user in google_users:
     new_user = {
@@ -233,24 +266,49 @@ if __name__ == "__main__":
 
 
   ## Get list of ServiceTitan technicians
-  # access_token = login_to_st()
-  # print("Fetching ServiceTitan technicians...")
-  # servicetitan_techs = get_servicetitan_technicians(access_token)
-  # techs = []
-  # for tech in servicetitan_techs:
-  #   new_tech = {
-  #     'id': tech['id'],
-  #     'userId': tech['userId'],
-  #     'name': tech['name'],
-  #     'email': tech['email']
-  #   }
-  #   techs.append(new_tech)
+  access_token = login_to_st()
+  print("Fetching ServiceTitan technicians...")
+  servicetitan_techs = get_servicetitan_technicians(access_token)
+  techs = []
+  for tech in servicetitan_techs:
+    new_tech = {
+      'id': tech['id'],
+      'userId': tech['userId'],
+      'name': tech['name'],
+      'email': tech['email']
+    }
+    techs.append(new_tech)
 
-  #   with open('st_techs.json', 'w') as file:
-  #     json.dump(techs, file, indent=2)
+    with open('st_techs.json', 'w') as file:
+      json.dump(techs, file, indent=2)
 
-  # print("Matching users...")
-  # matches = match_users_and_techs(google_users, servicetitan_techs)
+  print("Matching users...")
+  with open('google_users.json', 'r') as file:
+    google_users = json.load(file)
+  with open('st_techs.json', 'r') as file:
+    st_techs = json.load(file)
+  matches = match_users_and_techs(google_users, st_techs)
+  with open('user_matches.json', 'w') as file:
+    json.dump(matches, file, indent=2)
+  
+  # with open('google_users.json', 'r') as file:
+  #   google_users = json.load(file)
+  # print(f'Num google_users: {len(google_users)}')
+  # with open('st_techs.json', 'r') as file:
+  #   st_techs = json.load(file)
+  # print(f'Num st_techs: {len(st_techs)}')
+  # with open('user_matches.json', 'r') as file:
+  #   matches = json.load(file)
+  # print(f'Num matches: {len(matches)}')
+  # with open('non_matches.json', 'r') as file:
+  #   non_matches = json.load(file)
+  # print(f'Num non-matches: {len(non_matches)}')
+
+  # with open('user_matches.json', 'r') as file:
+  #   matches = json.load(file)
+  # non_matches = find_non_matching_users(google_users, st_techs, matches)
+  # with open('non_matches.json', 'w') as file:
+  #   json.dump(non_matches, file, indent=2)
 
   # for match in matches:
   #   print(match)
