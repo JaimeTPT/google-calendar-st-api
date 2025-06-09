@@ -18,7 +18,7 @@ google_admin_user = os.getenv("GOOGLE_ADMIN_USER")
 client_id = os.getenv("CLIENT_ID")
 client_secret = os.getenv("CLIENT_SECRET")
 servicetitan_api_key = os.getenv("SERVICETITAN_API_KEY")
-tenant_id = os.getenv("SERVICETITAN_TENANT_ID")
+st_tenant_id = os.getenv("SERVICETITAN_TENANT_ID")
 
 # --- FUNCTIONS ---
 
@@ -126,6 +126,7 @@ def find_and_compare_events():
           break
       if not event_found:
         ## TODO: create event in ST and save event to saved_personal_events_by_user object
+        pass
   
   return saved_personal_events_by_user
 
@@ -176,26 +177,27 @@ def get_servicetitan_technicians(access_token):
 
   return technicians
 
-def create_new_non_job_event():
-  url = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/non-job-appointments"
-    # payload = {
-    #     "technicianId": EVENT_TECHID,
-    #     "start": EVENT_START,
-    #     "duration": EVENT_DURATION,
-    #     "name": EVENT_NAME,
-    #     "timesheetCodeId": 0
-    # }
-    headers = {
-        "Authorization": f'{ACCESS_TOKEN}', 
-        "ST-App-Key": f'{APP_KEY}'
-    }
-    # print(id,payload)
-    # response = requests.request("GET", url, data=payload, headers=headers)
-    response = requests.request("POST", url, data=payload, headers=headers)
+def create_new_non_job_event(personal_event):
+  url = f"https://api.servicetitan.io/dispatch/v2/tenant/{st_tenant_id}/non-job-appointments"
+  payload = {
+    "technicianId": TARGET_JSON['technicianId'],
+    "start": TARGET_JSON['start'],
+    "duration": TARGET_JSON['duration'],
+    "name": TARGET_JSON['name'],
+    "summary": TARGET_JSON['summary'],
+    "removeTechnicianFromCapacityPlanning": True
+    # "timesheetCodeId": TARGET_JSON['timesheetCodeId']
+    # "timesheetCodeId": none
+  }
+  headers = {
+    "Authorization": f'{ACCESS_TOKEN}', 
+    "ST-App-Key": f'{APP_KEY}'
+  }
+  response = requests.request("POST", url, data=payload, headers=headers)
 
 
 def match_users_and_techs(google_users, technicians):
-  matches = []
+  matches = {}
 
   for user in google_users:
     g_email = user['email'].lower().strip()
@@ -210,14 +212,14 @@ def match_users_and_techs(google_users, technicians):
       t_name = tech['name'].lower().strip()
 
       if g_email == t_email or alias_email == t_email or g_name in t_name:
-        matches.append({
+        matches[g_email] = {
           'google_id': user['id'],
           'google_email': g_email,
           'google_name': g_name,
           'servicetitan_id': tech['id'],
           'servicetitan_name': t_name,
           'servicetitan_email': t_email
-        })
+        }
         break  # stop at first match for each Google user
 
   return matches
@@ -241,8 +243,8 @@ def find_non_matching_users(google_users, technicians, matches):
   
   for tech in technicians:
     match_found = False
-    for match in matches:
-      if tech['id'] == match['servicetitan_id']:
+    for user in matches.keys():
+      if tech['id'] == user['servicetitan_id']:
         match_found = True
         break
     if not match_found:
@@ -290,20 +292,20 @@ if __name__ == "__main__":
 
   ## Get list of events from google calendars
   # user_email = 'will@amstillroofing.com'
-  with open('user_matches.json', 'r') as file:
-    matches = json.load(file)
-  all_personal_events = {}
-  for user in matches:
-    user_email = user['google_email']
-    print(user['google_name'])
-    print(user_email)
-    personal_events = find_personal_events(user_email)
-    all_personal_events[user_email] = personal_events
+  # with open('user_matches.json', 'r') as file:
+  #   matches = json.load(file)
+  # all_personal_events = {}
+  # for user in matches:
+  #   user_email = user['google_email']
+  #   print(user['google_name'])
+  #   print(user_email)
+  #   personal_events = find_personal_events(user_email)
+  #   all_personal_events[user_email] = personal_events
 
 
 
-  with open('personal_events_by_user.json', 'w') as file:
-    json.dump(all_personal_events, file, indent=2)
+  # with open('personal_events_by_user.json', 'w') as file:
+  #   json.dump(all_personal_events, file, indent=2)
 
   # events = get_calendar_events('enes@amstillroofing.com')
   # for event in events:
@@ -356,14 +358,14 @@ if __name__ == "__main__":
   #   with open('st_techs.json', 'w') as file:
   #     json.dump(techs, file, indent=2)
 
-  # print("Matching users...")
-  # with open('google_users.json', 'r') as file:
-  #   google_users = json.load(file)
-  # with open('st_techs.json', 'r') as file:
-  #   st_techs = json.load(file)
-  # matches = match_users_and_techs(google_users, st_techs)
-  # with open('user_matches.json', 'w') as file:
-  #   json.dump(matches, file, indent=2)
+  print("Matching users...")
+  with open('google_users.json', 'r') as file:
+    google_users = json.load(file)
+  with open('st_techs.json', 'r') as file:
+    st_techs = json.load(file)
+  matches = match_users_and_techs(google_users, st_techs)
+  with open('user_matches.json', 'w') as file:
+    json.dump(matches, file, indent=2)
   
   # with open('google_users.json', 'r') as file:
   #   google_users = json.load(file)
