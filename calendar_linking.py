@@ -14,11 +14,15 @@ load_dotenv()
 GOOGLE_SCOPES = ['https://www.googleapis.com/auth/admin.directory.user.readonly']
 GOOGLE_CREDENTIALS_FILE = 'credentials.json'
 
+google_admin_user = os.getenv("GOOGLE_ADMIN_USER")
+client_id = os.getenv("CLIENT_ID")
+client_secret = os.getenv("CLIENT_SECRET")
+servicetitan_api_key = os.getenv("SERVICETITAN_API_KEY")
+tenant_id = os.getenv("SERVICETITAN_TENANT_ID")
+
 # --- FUNCTIONS ---
 
 def get_google_users():
-  google_admin_user = os.getenv("GOOGLE_ADMIN_USER")
-
   credentials = service_account.Credentials.from_service_account_file(
     GOOGLE_CREDENTIALS_FILE,
     scopes=GOOGLE_SCOPES,
@@ -29,8 +33,6 @@ def get_google_users():
   return results.get('users', [])
 
 def get_calendars():
-  google_admin_user = os.getenv("GOOGLE_ADMIN_USER")
-
   scopes = ['https://www.googleapis.com/auth/calendar.readonly']
   credentials = service_account.Credentials.from_service_account_file(
     GOOGLE_CREDENTIALS_FILE,
@@ -107,12 +109,30 @@ def find_personal_events(user_email):
   # print(f'Num personal events: {num_personal_events}')
   return personal_events
 
+## Read in and compare saved personal events with new batch of personal events
+## Create or update ST event as necessary, return updated list of events to save to file
+def find_and_compare_events():
+  with open('personal_events_by_user.json', 'r') as file:
+    saved_personal_events_by_user = json.load(file)
+    saved_users_personal_events = saved_personal_events_by_user[user]
+  for user in all_personal_events.keys():
+    users_personal_events = all_personal_events[user]
+    event_found = False
+    for event in users_personal_events:
+      for saved_event in saved_users_personal_events:
+        if event['google_id'] == saved_event['google_id']:
+          ## TODO: CHECK IF DATES AND TIMES ARE THE SAME
+          event_found = True
+          break
+      if not event_found:
+        ## TODO: create event in ST and save event to saved_personal_events_by_user object
+  
+  return saved_personal_events_by_user
+
+
+## ServiceTitan functions
 def login_to_st():
   print("Logging in to ServiceTitan...")
-
-  # Access variables
-  client_id = os.getenv("CLIENT_ID")
-  client_secret = os.getenv("CLIENT_SECRET")
 
   # Integration Endpoint
   # url = "https://auth-integration.servicetitan.io/connect/token"
@@ -131,10 +151,7 @@ def login_to_st():
   return(access_token)
 
 def get_servicetitan_technicians(access_token):
-  SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/4160781343/technicians'
-
-  # Access variables
-  servicetitan_api_key = os.getenv("SERVICETITAN_API_KEY")
+  SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/{st_tenant_id}/technicians'
 
   headers = {
     'Authorization': access_token,
@@ -158,6 +175,24 @@ def get_servicetitan_technicians(access_token):
     offset += limit
 
   return technicians
+
+def create_new_non_job_event():
+  url = f"https://api.servicetitan.io/dispatch/v2/tenant/{TENANT_ID}/non-job-appointments"
+    # payload = {
+    #     "technicianId": EVENT_TECHID,
+    #     "start": EVENT_START,
+    #     "duration": EVENT_DURATION,
+    #     "name": EVENT_NAME,
+    #     "timesheetCodeId": 0
+    # }
+    headers = {
+        "Authorization": f'{ACCESS_TOKEN}', 
+        "ST-App-Key": f'{APP_KEY}'
+    }
+    # print(id,payload)
+    # response = requests.request("GET", url, data=payload, headers=headers)
+    response = requests.request("POST", url, data=payload, headers=headers)
+
 
 def match_users_and_techs(google_users, technicians):
   matches = []
@@ -265,13 +300,9 @@ if __name__ == "__main__":
     personal_events = find_personal_events(user_email)
     all_personal_events[user_email] = personal_events
 
-  ## Read in and compare saved personal events with new batch of personal events
-  # with open('personal_events.json', 'r') as file:
-  #   saved_personal_events = json.load(file)
-  # for personal_event in personal_events:
-  #   if personal_event['google_id'] 
 
-  with open('personal_events.json', 'w') as file:
+
+  with open('personal_events_by_user.json', 'w') as file:
     json.dump(all_personal_events, file, indent=2)
 
   # events = get_calendar_events('enes@amstillroofing.com')
