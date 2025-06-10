@@ -4,6 +4,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
 import os
+from datetime import datetime
 
 # Load environment variables from .env file
 load_dotenv()
@@ -84,6 +85,7 @@ def find_personal_events(user_email):
       if 'doctors' in event['summary'].lower() or 'unavailable' in event['summary'].lower():
         personal_event = {
           'googe_id': event['id'],
+          'google_email': user_email,
           'created': event['created'],
           'updated': event['updated'],
           'creator_email': event['creator']['email'],
@@ -177,23 +179,31 @@ def get_servicetitan_technicians(access_token):
 
   return technicians
 
-def create_new_non_job_event(personal_event):
+def create_new_non_job_event(personal_event, access_token):
   url = f"https://api.servicetitan.io/dispatch/v2/tenant/{st_tenant_id}/non-job-appointments"
-  payload = {
-    "technicianId": TARGET_JSON['technicianId'],
-    "start": TARGET_JSON['start'],
-    "duration": TARGET_JSON['duration'],
-    "name": TARGET_JSON['name'],
-    "summary": TARGET_JSON['summary'],
-    "removeTechnicianFromCapacityPlanning": True
-    # "timesheetCodeId": TARGET_JSON['timesheetCodeId']
-    # "timesheetCodeId": none
-  }
   headers = {
-    "Authorization": f'{ACCESS_TOKEN}', 
-    "ST-App-Key": f'{APP_KEY}'
+    "Authorization": access_token, 
+    "ST-App-Key": servicetitan_api_key
+  }
+
+  with open('user_matches.json', 'r') as file:
+    user_matches = json.load(file)
+    st_id = user_matches[personal_event['google_email']]['servicetitan_id']
+    print(st_id)
+
+  start = datetime.fromisoformat(personal_event['start_dateTime'][:-6])
+  end = datetime.fromisoformat(personal_event['end_dateTime'][:-6])
+  duration = end - start
+  payload = {
+    "technicianId": st_id,
+    "start": start,
+    "duration": duration,
+    "name": personal_event['summary'],
+    "summary": personal_event['description'],
+    "removeTechnicianFromCapacityPlanning": True
   }
   response = requests.request("POST", url, data=payload, headers=headers)
+  # print(response.text)
 
 
 def match_users_and_techs(google_users, technicians):
@@ -261,6 +271,7 @@ def find_non_matching_users(google_users, technicians, matches):
 # --- MAIN SCRIPT ---
 
 if __name__ == "__main__":
+  access_token = login_to_st()
   ## Get list of Users from Google Workspace
   # print("Fetching Google Workspace users...")
   # google_users = get_google_users()
@@ -291,18 +302,14 @@ if __name__ == "__main__":
   #   n += 1
 
   ## Get list of events from google calendars
-  # user_email = 'will@amstillroofing.com'
   # with open('user_matches.json', 'r') as file:
   #   matches = json.load(file)
   # all_personal_events = {}
-  # for user in matches:
-  #   user_email = user['google_email']
-  #   print(user['google_name'])
+  # for user_email in matches.keys():
+  #   print(matches[user_email]['google_name'])
   #   print(user_email)
   #   personal_events = find_personal_events(user_email)
   #   all_personal_events[user_email] = personal_events
-
-
 
   # with open('personal_events_by_user.json', 'w') as file:
   #   json.dump(all_personal_events, file, indent=2)
@@ -342,7 +349,6 @@ if __name__ == "__main__":
 
 
   ## Get list of ServiceTitan technicians
-  # access_token = login_to_st()
   # print("Fetching ServiceTitan technicians...")
   # servicetitan_techs = get_servicetitan_technicians(access_token)
   # techs = []
@@ -358,14 +364,14 @@ if __name__ == "__main__":
   #   with open('st_techs.json', 'w') as file:
   #     json.dump(techs, file, indent=2)
 
-  print("Matching users...")
-  with open('google_users.json', 'r') as file:
-    google_users = json.load(file)
-  with open('st_techs.json', 'r') as file:
-    st_techs = json.load(file)
-  matches = match_users_and_techs(google_users, st_techs)
-  with open('user_matches.json', 'w') as file:
-    json.dump(matches, file, indent=2)
+  # print("Matching users...")
+  # with open('google_users.json', 'r') as file:
+  #   google_users = json.load(file)
+  # with open('st_techs.json', 'r') as file:
+  #   st_techs = json.load(file)
+  # matches = match_users_and_techs(google_users, st_techs)
+  # with open('user_matches.json', 'w') as file:
+  #   json.dump(matches, file, indent=2)
   
   # with open('google_users.json', 'r') as file:
   #   google_users = json.load(file)
@@ -390,3 +396,18 @@ if __name__ == "__main__":
   #   print(match)
 
   # print(f"\nTotal matches found: {len(matches)}")
+
+  ## Create new non-job event in ST
+  create_new_non_job_event({
+    "googe_id": "_88q38c9k64r48ba388s44b9k6533cba270r30ba26gqk6dq384sj0cpm8o",
+    "google_email": "will@amstillroofing.com",
+    "created": "2019-12-27T03:59:35.000Z",
+    "updated": "2019-12-27T03:59:35.693Z",
+    "creator_email": "adam@amstillroofing.com",
+    "organizer_email": "adam@amstillroofing.com",
+    "summary": "TEST",
+    "description": "this is a test",
+    "start_dateTime": "2025-06-01T13:00:00-06:00",
+    "end_dateTime": "2025-06-01T14:00:00-06:00",
+    "time_zone": "UTC"
+  }, access_token)
