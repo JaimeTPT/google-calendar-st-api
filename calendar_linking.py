@@ -31,7 +31,32 @@ def get_google_users():
   )
   service = build('admin', 'directory_v1', credentials=credentials)
   results = service.users().list(customer='my_customer', maxResults=200, orderBy='email').execute()
-  return results.get('users', [])
+  results_users = results.get('users', [])
+  users = {}
+  for user in results_users:
+    new_user = {
+      'name': user['name']['fullName'],
+      'id': user['id'],
+      'email': user['primaryEmail'],
+      'active': True
+    }
+    users[user['primaryEmail']] = new_user
+  return users
+
+def save_google_users():
+  ## Get list of Users from Google Workspace
+  print("Fetching Google Workspace users...")
+  google_users = get_google_users()
+  with open('google_users.json', 'r') as file:
+    saved_users = json.load(file)
+  for user_email in saved_users.keys():
+    if user_email not in google_users.keys():
+      ## User no longer in Google, mark as inactive and save to google_users
+      saved_users[user_email]['active'] = False
+      google_users[user_email] = saved_users[user_email]
+
+  with open('google_users.json', 'w') as file:
+    json.dump(google_users, file, indent=2)
 
 def get_calendars():
   scopes = ['https://www.googleapis.com/auth/calendar.readonly']
@@ -272,20 +297,7 @@ def find_non_matching_users(google_users, technicians, matches):
 
 if __name__ == "__main__":
   access_token = login_to_st()
-  ## Get list of Users from Google Workspace
-  # print("Fetching Google Workspace users...")
-  # google_users = get_google_users()
-  # g_users = []
-  # for user in google_users:
-  #   new_user = {
-  #     'name': user['name']['fullName'],
-  #     'id': user['id'],
-  #     'email': user['primaryEmail']
-  #   }
-  #   g_users.append(new_user)
-
-  #   with open('google_users.json', 'w') as file:
-  #     json.dump(g_users, file, indent=2)
+  save_google_users()
 
   ## Get list of calendars in Google Workspace
   # print("Fetching Google Workspace calendars...")
