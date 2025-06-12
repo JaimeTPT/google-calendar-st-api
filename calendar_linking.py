@@ -59,6 +59,8 @@ def save_google_users():
     json.dump(google_users, file, indent=2)
 
 def get_calendars():
+  ## Get list of calendars in Google Workspace
+  print("Fetching Google Workspace calendars...")
   scopes = ['https://www.googleapis.com/auth/calendar.readonly']
   credentials = service_account.Credentials.from_service_account_file(
     GOOGLE_CREDENTIALS_FILE,
@@ -136,12 +138,58 @@ def find_personal_events(user_email):
   # print(f'Num personal events: {num_personal_events}')
   return personal_events
 
+def save_personal_events():
+  ## Get list of events from google calendars
+  ## SHOULD ONLY BE CALLED ONCE AT THE BEGINNING OF THE AUTOMATION FOR SETUP
+  ## AFTER SETUP, CALL FIND AND COMPARE EVENTS
+  with open('user_matches.json', 'r') as file:
+    matches = json.load(file)
+  all_personal_events = {}
+  for user_email in matches.keys():
+    print(matches[user_email]['google_name'])
+    print(user_email)
+    personal_events = find_personal_events(user_email)
+    all_personal_events[user_email] = personal_events
+
+  with open('personal_events_by_user.json', 'w') as file:
+    json.dump(all_personal_events, file, indent=2)
+
 ## Read in and compare saved personal events with new batch of personal events
 ## Create or update ST event as necessary, return updated list of events to save to file
-def find_and_compare_events():
+def find_and_add_or_update_events(access_token):
+  ## read in saved personal events, google users, and user matches
   with open('personal_events_by_user.json', 'r') as file:
     saved_personal_events_by_user = json.load(file)
-    saved_users_personal_events = saved_personal_events_by_user[user]
+  with open('google_users.json') as file:
+    google_users = json.load(file)
+  with open('user_matches.json') as file:
+    user_matches = json.load(file)
+  ## iterate through active google users
+  for user_email in google_users.keys():
+    ## get events for each user from google
+    user_personal_events = find_personal_events(user_email)
+    ## compare events from google with saved events for user
+    for event in user_personal_events:
+      # event_already_saved = False
+      saved_event = None
+      for personal_event in saved_personal_events_by_user[user_email]:
+        if event['google_id'] == personal_event['google_id']:
+          saved_event = personal_event
+          break
+      ## if event isn't already saved, save it and create the event in ST
+      if not saved_event:
+        print(f'Saving event to ServiceTitan')
+        print(f'Google ID: {saved_event['google_id']}')
+        ## TODO: create even in ST
+
+      ## if event is saved, check datetime to see if it changed, and if so, change in ST
+      elif event['start_dateTime'] != saved_event['start_dateTime'] or event['end_dateTime'] != saved_event['end_dateTime']:
+        print(f'Updating event in ServiceTitan')
+        ## TODO: update event in ST
+
+  with open('personal_events_by_user.json', 'r') as file:
+    saved_personal_events_by_user = json.load(file)
+    # saved_users_personal_events = saved_personal_events_by_user[user]
   for user in all_personal_events.keys():
     users_personal_events = all_personal_events[user]
     event_found = False
@@ -228,8 +276,8 @@ def create_new_non_job_event(personal_event, access_token):
     "removeTechnicianFromCapacityPlanning": True
   }
   response = requests.request("POST", url, data=payload, headers=headers)
-  # print(response.text)
-
+  print(response.json()['id'])
+  return response.json()['id']
 
 def match_users_and_techs(google_users, technicians):
   matches = {}
@@ -297,34 +345,11 @@ def find_non_matching_users(google_users, technicians, matches):
 
 if __name__ == "__main__":
   access_token = login_to_st()
-  save_google_users()
+  # save_google_users()
+  # get_calendars()
 
-  ## Get list of calendars in Google Workspace
-  # print("Fetching Google Workspace calendars...")
-  # google_calendars = get_calendars()
-  # print(len(google_calendars))
-  # n = 1
-  # for calendar in google_calendars:
-  #   print(f'Calendar {n}')
-  #   # print(calendar['name']['fullName'])
-  #   # print(calendar['primaryEmail'])
-  #   # print(calendar['id'])
-  #   print(calendar)
-  #   print('--------------------------')
-  #   n += 1
-
-  ## Get list of events from google calendars
-  # with open('user_matches.json', 'r') as file:
-  #   matches = json.load(file)
-  # all_personal_events = {}
-  # for user_email in matches.keys():
-  #   print(matches[user_email]['google_name'])
-  #   print(user_email)
-  #   personal_events = find_personal_events(user_email)
-  #   all_personal_events[user_email] = personal_events
-
-  # with open('personal_events_by_user.json', 'w') as file:
-  #   json.dump(all_personal_events, file, indent=2)
+  # save_personal_events()
+  # find_and_add_or_update_events(access_token)
 
   # events = get_calendar_events('enes@amstillroofing.com')
   # for event in events:
