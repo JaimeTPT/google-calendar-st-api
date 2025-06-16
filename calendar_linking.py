@@ -23,7 +23,23 @@ st_tenant_id = os.getenv("SERVICETITAN_TENANT_ID")
 
 # --- FUNCTIONS ---
 
+## Setup function only for first time program is run
+## Finds and matches ST techs and Google users, saves personal events from techs calendars
+def setup(access_token):
+  google_users = get_google_users()
+  st_techs = get_st_technicians(access_token)
+  matches = match_users_and_techs(google_users, st_techs)
+  save_personal_events(matches)
+
+  with open('google_users.json', 'w') as file:
+    json.dump(google_users, file, indent=2)
+  with open('st_techs.json', 'w') as file:
+    json.dump(st_techs, file, indent=2)
+  with open('user_matches.json', 'w') as file:
+    json.dump(matches, file, indent=2)
+
 def get_google_users():
+  print('Getting Google Users')
   credentials = service_account.Credentials.from_service_account_file(
     GOOGLE_CREDENTIALS_FILE,
     scopes=GOOGLE_SCOPES,
@@ -43,6 +59,7 @@ def get_google_users():
     users[user['primaryEmail']] = new_user
   return users
 
+## Finds users in Google, compares to previously saved users, updates saved users as necessary
 def save_google_users():
   ## Get list of Users from Google Workspace
   print("Fetching Google Workspace users...")
@@ -138,12 +155,10 @@ def find_personal_events(user_email):
   # print(f'Num personal events: {num_personal_events}')
   return personal_events
 
-def save_personal_events():
+def save_personal_events(matches):
   ## Get list of events from google calendars
   ## SHOULD ONLY BE CALLED ONCE AT THE BEGINNING OF THE AUTOMATION FOR SETUP
   ## AFTER SETUP, CALL FIND AND COMPARE EVENTS
-  with open('user_matches.json', 'r') as file:
-    matches = json.load(file)
   all_personal_events = {}
   for user_email in matches.keys():
     print(matches[user_email]['google_name'])
@@ -157,13 +172,11 @@ def save_personal_events():
 ## Read in and compare saved personal events with new batch of personal events
 ## Create or update ST event as necessary, return updated list of events to save to file
 def find_and_add_or_update_events(access_token):
-  ## read in saved personal events, google users, and user matches
+  ## read in saved personal events and google users
   with open('personal_events_by_user.json', 'r') as file:
     saved_personal_events_by_user = json.load(file)
   with open('google_users.json') as file:
     google_users = json.load(file)
-  with open('user_matches.json') as file:
-    user_matches = json.load(file)
   ## iterate through active google users
   for user_email in google_users.keys():
     ## get events for each user from google
@@ -176,42 +189,20 @@ def find_and_add_or_update_events(access_token):
         if event['google_id'] == personal_event['google_id']:
           saved_event = personal_event
           break
-      ## if event isn't already saved, save it and create the event in ST
+      ## if event isn't already saved, create the event in ST (function also saves event to file)
       if not saved_event:
-        print(f'Saving event to ServiceTitan')
-        print(f'Google ID: {saved_event['google_id']}')
-        ## TODO: create even in ST
+        print(f'Creating event in ServiceTitan and saving to file')
+        create_new_non_job_event(personal_event, access_token)
 
-      ## if event is saved, check datetime to see if it changed, and if so, change in ST
+      ## if event is saved, check datetime to see if it changed, and if so, change in ST (function also updates saved event)
       elif event['start_dateTime'] != saved_event['start_dateTime'] or event['end_dateTime'] != saved_event['end_dateTime']:
-        print(f'Updating event in ServiceTitan')
-        ## TODO: update event in ST
-
-  with open('personal_events_by_user.json', 'r') as file:
-    saved_personal_events_by_user = json.load(file)
-    # saved_users_personal_events = saved_personal_events_by_user[user]
-  for user in all_personal_events.keys():
-    users_personal_events = all_personal_events[user]
-    event_found = False
-    for event in users_personal_events:
-      for saved_event in saved_users_personal_events:
-        if event['google_id'] == saved_event['google_id']:
-          ## TODO: CHECK IF DATES AND TIMES ARE THE SAME
-          event_found = True
-          break
-      if not event_found:
-        ## TODO: create event in ST and save event to saved_personal_events_by_user object
-        pass
-  
-  return saved_personal_events_by_user
+        print(f'Updating event in ServiceTitan and saving to file')
+        update_non_job_event(personal_event, access_token)
 
 
 ## ServiceTitan functions
 def login_to_st():
   print("Logging in to ServiceTitan...")
-
-  # Integration Endpoint
-  # url = "https://auth-integration.servicetitan.io/connect/token"
 
   # Production Endpoint
   url = "https://auth.servicetitan.io/connect/token"
@@ -224,10 +215,13 @@ def login_to_st():
 
   print("Logged in!")
 
-  return(access_token)
+  return access_token
 
-def get_servicetitan_technicians(access_token):
-  SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/{st_tenant_id}/technicians'
+def get_st_technicians(access_token):
+  print('Getting ServiceTitan Technicians')
+  ## TODO: figure out why the tenant id has to be hard coded to work
+  # SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/{st_tenant_id}/technicians'
+  SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/4160781343/technicians'
 
   headers = {
     'Authorization': access_token,
@@ -240,6 +234,7 @@ def get_servicetitan_technicians(access_token):
 
   while True:
     response = requests.get(f"{SERVICETITAN_API_URL}?offset={offset}&limit={limit}", headers=headers)
+    print(response.text)
     if response.status_code != 200:
       raise Exception(f"ServiceTitan API error: {response.status_code} - {response.text}")
 
@@ -249,10 +244,40 @@ def get_servicetitan_technicians(access_token):
     if len(data.get('data', [])) < limit:
       break
     offset += limit
+  
+  techs = {}
+  for tech in technicians:
+    new_tech = {
+      'id': tech['id'],
+      'userId': tech['userId'],
+      'name': tech['name'],
+      'email': tech['email'],
+      'active': tech['active']
+    }
+    techs[tech['id']] = new_tech
 
-  return technicians
+  return techs
 
+def save_st_technicians(access_token):
+  ## TODO: compare technicians from ST with saved technicians, make adjustments as necessary
+  st_techs = get_st_technicians(access_token)
+  techs = []
+  for tech in st_techs:
+    new_tech = {
+      'id': tech['id'],
+      'userId': tech['userId'],
+      'name': tech['name'],
+      'email': tech['email']
+    }
+    techs.append(new_tech)
+
+  with open('st_techs.json', 'w') as file:
+    json.dump(techs, file, indent=2)
+
+## Creates a non-job event in ServiceTitan and saves the new event to the personal_events_by_user.json file
 def create_new_non_job_event(personal_event, access_token):
+  print('Creating non-job event in ServiceTitan')
+  user_email = personal_event['google_email']
   url = f"https://api.servicetitan.io/dispatch/v2/tenant/{st_tenant_id}/non-job-appointments"
   headers = {
     "Authorization": access_token, 
@@ -261,8 +286,8 @@ def create_new_non_job_event(personal_event, access_token):
 
   with open('user_matches.json', 'r') as file:
     user_matches = json.load(file)
-    st_id = user_matches[personal_event['google_email']]['servicetitan_id']
-    print(st_id)
+    st_id = user_matches[user_email]['servicetitan_id']
+    # print(st_id)
 
   start = datetime.fromisoformat(personal_event['start_dateTime'][:-6])
   end = datetime.fromisoformat(personal_event['end_dateTime'][:-6])
@@ -276,30 +301,70 @@ def create_new_non_job_event(personal_event, access_token):
     "removeTechnicianFromCapacityPlanning": True
   }
   response = requests.request("POST", url, data=payload, headers=headers)
-  print(response.json()['id'])
+  print('ST event created:')
+  print(json.dumps(response.json(), indent=2))
+
+## Updates non-job event with new data
+def update_non_job_event(personal_event, access_token):
+  print('Updating non-job event in ServiceTitan')
+  user_email = personal_event['google_email']
+  st_id = personal_event['servicetitan_id']
+  url = f"https://api.servicetitan.io/dispatch/v2/tenant/{st_tenant_id}/non-job-appointments/{st_id}"
+  headers = {
+    "Authorization": access_token, 
+    "ST-App-Key": servicetitan_api_key
+  }
+
+  start = datetime.fromisoformat(personal_event['start_dateTime'][:-6])
+  end = datetime.fromisoformat(personal_event['end_dateTime'][:-6])
+  duration = end - start
+  payload = {
+    "technicianId": st_id,
+    "start": start,
+    "duration": duration,
+    "name": personal_event['summary'],
+    "summary": personal_event['description'],
+    "removeTechnicianFromCapacityPlanning": True
+  }
+  response = requests.request("PUT", url, data=payload, headers=headers)
+
+  ## update event
+  with open('personal_events_by_user.json', 'rw') as file:
+    personal_events_by_user = json.load(file)
+    for event in personal_events_by_user[user_email]:
+      if event['servicetitan_id'] == st_id:
+        event['summary'] = personal_event['summary']
+        event['start_dateTime'] = personal_event['start_dateTime']
+        event['end_dateTime'] = personal_event['end_dateTime']
+        break
+    json.dump(personal_events_by_user, file, indent=2)
+
+  print('ST event updated:')
+  print(json.dumps(response.json(), indent=2))
   return response.json()['id']
 
 def match_users_and_techs(google_users, technicians):
+  print('Matching Google users with ServiceTitan technicians')
   matches = {}
 
-  for user in google_users:
-    g_email = user['email'].lower().strip()
-    g_name = user['name'].strip().lower().strip()
+  for user_email in google_users.keys():
+    g_email = user_email.lower().strip()
+    g_name = google_users[user_email]['name'].lower().strip()
     alias_email = g_email.split('@')
     alias_email = alias_email[0] + '+1@' + alias_email[1]
 
-    for tech in technicians:
-      t_email = tech['email']
+    for tech_id in technicians.keys():
+      t_email = technicians[tech_id]['email']
       if t_email:
         t_email = t_email.lower().strip()
-      t_name = tech['name'].lower().strip()
+      t_name = technicians[tech_id]['name'].lower().strip()
 
       if g_email == t_email or alias_email == t_email or g_name in t_name:
         matches[g_email] = {
-          'google_id': user['id'],
+          'google_id': google_users[user_email]['id'],
           'google_email': g_email,
           'google_name': g_name,
-          'servicetitan_id': tech['id'],
+          'servicetitan_id': tech_id,
           'servicetitan_name': t_name,
           'servicetitan_email': t_email
         }
@@ -345,106 +410,27 @@ def find_non_matching_users(google_users, technicians, matches):
 
 if __name__ == "__main__":
   access_token = login_to_st()
+  # print(access_token)
+  setup(access_token)
+  # get_st_technicians(access_token)
   # save_google_users()
   # get_calendars()
 
   # save_personal_events()
   # find_and_add_or_update_events(access_token)
 
-  # events = get_calendar_events('enes@amstillroofing.com')
-  # for event in events:
-  #   print(event)
-  
-  # n = 1
-  # for event in events['items']:
-    # print(f'Technician {n}: {user.google_name}')
-    # print(f'Event {n}')
-    # print(event)
-    # print(event['id'])
-    # print(event['created'])
-    # print(event['updated'])
-    # print(event['creator']['email'])
-    # print(event['organizer']['email'])
-    # print(event['start']['dateTime'])
-    # print(event['start']['timeZone'])
-    # print(event['end']['dateTime'])
-    # print(event['end']['timeZone'])
-    # print('--------------------------')
-    # n += 1
 
-  ## We don't need this??
-  # calendar_events = get_calendar_events('zac@amstillroofing.com')
-  # n = 1
-  # for event in calendar_events:
-  #   # print(f'Technician {n}: {user.google_name}')
-  #   print(f'Event {n}')
-  #   print(event)
-  #   # print(user['primaryEmail'])
-  #   # print(user['id'])
-  #   print('--------------------------')
-  #   n += 1
-
-
-  ## Get list of ServiceTitan technicians
-  # print("Fetching ServiceTitan technicians...")
-  # servicetitan_techs = get_servicetitan_technicians(access_token)
-  # techs = []
-  # for tech in servicetitan_techs:
-  #   new_tech = {
-  #     'id': tech['id'],
-  #     'userId': tech['userId'],
-  #     'name': tech['name'],
-  #     'email': tech['email']
-  #   }
-  #   techs.append(new_tech)
-
-  #   with open('st_techs.json', 'w') as file:
-  #     json.dump(techs, file, indent=2)
-
-  # print("Matching users...")
-  # with open('google_users.json', 'r') as file:
-  #   google_users = json.load(file)
-  # with open('st_techs.json', 'r') as file:
-  #   st_techs = json.load(file)
-  # matches = match_users_and_techs(google_users, st_techs)
-  # with open('user_matches.json', 'w') as file:
-  #   json.dump(matches, file, indent=2)
-  
-  # with open('google_users.json', 'r') as file:
-  #   google_users = json.load(file)
-  # print(f'Num google_users: {len(google_users)}')
-  # with open('st_techs.json', 'r') as file:
-  #   st_techs = json.load(file)
-  # print(f'Num st_techs: {len(st_techs)}')
-  # with open('user_matches.json', 'r') as file:
-  #   matches = json.load(file)
-  # print(f'Num matches: {len(matches)}')
-  # with open('non_matches.json', 'r') as file:
-  #   non_matches = json.load(file)
-  # print(f'Num non-matches: {len(non_matches)}')
-
-  # with open('user_matches.json', 'r') as file:
-  #   matches = json.load(file)
-  # non_matches = find_non_matching_users(google_users, st_techs, matches)
-  # with open('non_matches.json', 'w') as file:
-  #   json.dump(non_matches, file, indent=2)
-
-  # for match in matches:
-  #   print(match)
-
-  # print(f"\nTotal matches found: {len(matches)}")
-
-  ## Create new non-job event in ST
-  create_new_non_job_event({
-    "googe_id": "_88q38c9k64r48ba388s44b9k6533cba270r30ba26gqk6dq384sj0cpm8o",
-    "google_email": "will@amstillroofing.com",
-    "created": "2019-12-27T03:59:35.000Z",
-    "updated": "2019-12-27T03:59:35.693Z",
-    "creator_email": "adam@amstillroofing.com",
-    "organizer_email": "adam@amstillroofing.com",
-    "summary": "TEST",
-    "description": "this is a test",
-    "start_dateTime": "2025-06-01T13:00:00-06:00",
-    "end_dateTime": "2025-06-01T14:00:00-06:00",
-    "time_zone": "UTC"
-  }, access_token)
+  ## TEST Create new non-job event in ST
+  # st_event_id = create_new_non_job_event({
+  #   "googe_id": "_88q38c9k64r48ba388s44b9k6533cba270r30ba26gqk6dq384sj0cpm8o",
+  #   "google_email": "will@amstillroofing.com",
+  #   "created": "2019-12-27T03:59:35.000Z",
+  #   "updated": "2019-12-27T03:59:35.693Z",
+  #   "creator_email": "adam@amstillroofing.com",
+  #   "organizer_email": "adam@amstillroofing.com",
+  #   "summary": "TEST",
+  #   "description": "this is a test",
+  #   "start_dateTime": "2025-06-01T13:00:00-06:00",
+  #   "end_dateTime": "2025-06-01T14:00:00-06:00",
+  #   "time_zone": "UTC"
+  # }, access_token)
