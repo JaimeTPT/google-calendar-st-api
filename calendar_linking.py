@@ -128,7 +128,8 @@ def find_personal_events(user_email):
     if 'summary' in event.keys():
       if 'doctors' in event['summary'].lower() or 'unavailable' in event['summary'].lower():
         personal_event = {
-          'googe_id': event['id'],
+          'google_id': event['id'],
+          'servicetitan_id': '-1',
           'google_email': user_email,
           'created': event['created'],
           'updated': event['updated'],
@@ -138,14 +139,16 @@ def find_personal_events(user_email):
         }
         if 'description' in event:
           personal_event['description'] = event['description']
+        else:
+          personal_event['description'] = ''
         if 'dateTime' in event['start']:
           personal_event['start_dateTime'] = event['start']['dateTime']
-        if 'dateTime' in event['end']:
           personal_event['end_dateTime'] = event['end']['dateTime']
-        if 'date' in event['start']:
+          personal_event['all_day'] = False
+        else:
           personal_event['start_date'] = event['start']['date']
-        if 'date' in event['end']:
           personal_event['end_date'] = event['end']['date']
+          personal_event['all_day'] = True
         if 'timeZone' in event['start']:
           personal_event['time_zone'] = event['start']['timeZone']
         # print(event)
@@ -175,29 +178,59 @@ def find_and_add_or_update_events(access_token):
   ## read in saved personal events and google users
   with open('personal_events_by_user.json', 'r') as file:
     saved_personal_events_by_user = json.load(file)
-  with open('google_users.json') as file:
-    google_users = json.load(file)
+  with open('user_matches.json') as file:
+    user_matches = json.load(file)
   ## iterate through active google users
-  for user_email in google_users.keys():
-    ## get events for each user from google
-    user_personal_events = find_personal_events(user_email)
-    ## compare events from google with saved events for user
-    for event in user_personal_events:
-      # event_already_saved = False
-      saved_event = None
+  for user_email in user_matches.keys():
+    pass
+  user_email = 'adam@amstillroofing.com'
+  ## get events for each user from google
+  # user_personal_events = find_personal_events(user_email)
+  user_personal_events = [{
+    "google_id": "1",
+    "servicetitan_id": "511688354",
+    "google_email": "adam@amstillroofing.com",
+    "created": "2025-06-16T03:59:35.000Z",
+    "updated": "2025-06-16T03:59:35.693Z",
+    "creator_email": "adam@amstillroofing.com",
+    "organizer_email": "adam@amstillroofing.com",
+    "summary": "Doctors apt ",
+    'description': '',
+    "start_dateTime": "2025-06-15T14:30:00-06:00",
+    "end_dateTime": "2025-06-15T15:40:00-06:00",
+    "time_zone": "UTC"
+  }
+  ]
+  ## compare events from google with saved events for user
+  for event in user_personal_events:
+    # event_already_saved = False
+    event_found = False
+    for saved_event in saved_personal_events_by_user[user_email]:
+      if event['google_id'] == saved_event['google_id']:
+        event_found = True
+        break
+    ## if event isn't already saved, create the event in ST (function also saves event to file)
+    if not event_found:
+      print(f'Creating event in ServiceTitan and saving to file')
+      st_id = create_new_non_job_event(event, access_token)
+      ## Save event to saved_personal_events with st_id
+      saved_event['servicetitan_id'] = st_id
+      saved_personal_events_by_user[user_email].append(event)
+      
+    ## if event is saved, check datetime to see if it changed, and if so, change in ST (function also updates saved event)
+    elif event['start_dateTime'] != saved_event['start_dateTime'] or event['end_dateTime'] != saved_event['end_dateTime']:
+      print(f'Updating event in ServiceTitan and saving to file')
+      tech_id = user_matches[user_email]['servicetitan_id']
+      update_non_job_event(event, tech_id, access_token)
       for personal_event in saved_personal_events_by_user[user_email]:
         if event['google_id'] == personal_event['google_id']:
-          saved_event = personal_event
-          break
-      ## if event isn't already saved, create the event in ST (function also saves event to file)
-      if not saved_event:
-        print(f'Creating event in ServiceTitan and saving to file')
-        create_new_non_job_event(personal_event, access_token)
-
-      ## if event is saved, check datetime to see if it changed, and if so, change in ST (function also updates saved event)
-      elif event['start_dateTime'] != saved_event['start_dateTime'] or event['end_dateTime'] != saved_event['end_dateTime']:
-        print(f'Updating event in ServiceTitan and saving to file')
-        update_non_job_event(personal_event, access_token)
+          personal_event["summary"] = event['summary']
+          personal_event["start_dateTime"] = event['start_dateTime']
+          personal_event["end_dateTime"] = event['end_dateTime']
+    
+  print('saving personal events to file')
+  with open('personal_events_by_user.json', 'w') as file:
+    json.dump(saved_personal_events_by_user, file, indent=2)
 
 
 ## ServiceTitan functions
@@ -286,14 +319,14 @@ def create_new_non_job_event(personal_event, access_token):
 
   with open('user_matches.json', 'r') as file:
     user_matches = json.load(file)
-    st_id = user_matches[user_email]['servicetitan_id']
+    tech_id = user_matches[user_email]['servicetitan_id']
     # print(st_id)
 
   start = datetime.fromisoformat(personal_event['start_dateTime'][:-6])
   end = datetime.fromisoformat(personal_event['end_dateTime'][:-6])
   duration = end - start
   payload = {
-    "technicianId": st_id,
+    "technicianId": tech_id,
     "start": start,
     "duration": duration,
     "name": personal_event['summary'],
@@ -303,13 +336,14 @@ def create_new_non_job_event(personal_event, access_token):
   response = requests.request("POST", url, data=payload, headers=headers)
   print('ST event created:')
   print(json.dumps(response.json(), indent=2))
+  return response.json()['id']
 
 ## Updates non-job event with new data
-def update_non_job_event(personal_event, access_token):
+def update_non_job_event(personal_event, tech_id, access_token):
   print('Updating non-job event in ServiceTitan')
   user_email = personal_event['google_email']
-  st_id = personal_event['servicetitan_id']
-  url = f"https://api.servicetitan.io/dispatch/v2/tenant/{st_tenant_id}/non-job-appointments/{st_id}"
+  st_event_id = personal_event['servicetitan_id']
+  url = f"https://api.servicetitan.io/dispatch/v2/tenant/{st_tenant_id}/non-job-appointments/{st_event_id}"
   headers = {
     "Authorization": access_token, 
     "ST-App-Key": servicetitan_api_key
@@ -319,7 +353,7 @@ def update_non_job_event(personal_event, access_token):
   end = datetime.fromisoformat(personal_event['end_dateTime'][:-6])
   duration = end - start
   payload = {
-    "technicianId": st_id,
+    "technicianId": tech_id,
     "start": start,
     "duration": duration,
     "name": personal_event['summary'],
@@ -329,14 +363,15 @@ def update_non_job_event(personal_event, access_token):
   response = requests.request("PUT", url, data=payload, headers=headers)
 
   ## update event
-  with open('personal_events_by_user.json', 'rw') as file:
+  with open('personal_events_by_user.json', 'r') as file:
     personal_events_by_user = json.load(file)
     for event in personal_events_by_user[user_email]:
-      if event['servicetitan_id'] == st_id:
+      if event['servicetitan_id'] == st_event_id:
         event['summary'] = personal_event['summary']
         event['start_dateTime'] = personal_event['start_dateTime']
         event['end_dateTime'] = personal_event['end_dateTime']
         break
+  with open('personal_events_by_user.json', 'w') as file:
     json.dump(personal_events_by_user, file, indent=2)
 
   print('ST event updated:')
@@ -411,18 +446,18 @@ def find_non_matching_users(google_users, technicians, matches):
 if __name__ == "__main__":
   access_token = login_to_st()
   # print(access_token)
-  setup(access_token)
+  # setup(access_token)
   # get_st_technicians(access_token)
   # save_google_users()
   # get_calendars()
 
   # save_personal_events()
-  # find_and_add_or_update_events(access_token)
+  find_and_add_or_update_events(access_token)
 
 
   ## TEST Create new non-job event in ST
   # st_event_id = create_new_non_job_event({
-  #   "googe_id": "_88q38c9k64r48ba388s44b9k6533cba270r30ba26gqk6dq384sj0cpm8o",
+  #   "google_id": "_88q38c9k64r48ba388s44b9k6533cba270r30ba26gqk6dq384sj0cpm8o",
   #   "google_email": "will@amstillroofing.com",
   #   "created": "2019-12-27T03:59:35.000Z",
   #   "updated": "2019-12-27T03:59:35.693Z",
