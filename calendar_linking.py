@@ -181,26 +181,27 @@ def find_and_add_or_update_events(access_token):
   with open('user_matches.json') as file:
     user_matches = json.load(file)
   ## iterate through active google users
+  ## TODO: CHANGE BACK TO FOR LOOP HERE 
   for user_email in user_matches.keys():
     pass
   user_email = 'adam@amstillroofing.com'
   ## get events for each user from google
-  # user_personal_events = find_personal_events(user_email)
-  user_personal_events = [{
-    "google_id": "1",
-    "servicetitan_id": "511688354",
-    "google_email": "adam@amstillroofing.com",
-    "created": "2025-06-16T03:59:35.000Z",
-    "updated": "2025-06-16T03:59:35.693Z",
-    "creator_email": "adam@amstillroofing.com",
-    "organizer_email": "adam@amstillroofing.com",
-    "summary": "Doctors apt ",
-    'description': '',
-    "start_dateTime": "2025-06-15T14:30:00-06:00",
-    "end_dateTime": "2025-06-15T15:40:00-06:00",
-    "time_zone": "UTC"
-  }
-  ]
+  user_personal_events = find_personal_events(user_email)
+  # user_personal_events = [{
+  #   "google_id": "1",
+  #   "servicetitan_id": "511688354",
+  #   "google_email": "adam@amstillroofing.com",
+  #   "created": "2025-06-16T03:59:35.000Z",
+  #   "updated": "2025-06-16T03:59:35.693Z",
+  #   "creator_email": "adam@amstillroofing.com",
+  #   "organizer_email": "adam@amstillroofing.com",
+  #   "summary": "Doctors apt ",
+  #   'description': '',
+  #   "start_dateTime": "2025-06-15T14:30:00-06:00",
+  #   "end_dateTime": "2025-06-15T15:40:00-06:00",
+  #   "time_zone": "UTC"
+  # }
+  # ]
   ## compare events from google with saved events for user
   for event in user_personal_events:
     # event_already_saved = False
@@ -227,6 +228,18 @@ def find_and_add_or_update_events(access_token):
           personal_event["summary"] = event['summary']
           personal_event["start_dateTime"] = event['start_dateTime']
           personal_event["end_dateTime"] = event['end_dateTime']
+
+  for saved_event in saved_personal_events_by_user[user_email]:
+    saved_event_in_google = False
+    for google_event in user_personal_events:
+      if google_event['google_id'] == saved_event['google_id']:
+        saved_event_in_google = True
+    if not saved_event_in_google:
+      ## TODO: delete event in ST
+      # st_event_id = saved_event['servicetitan_id']
+      delete_non_job_event(saved_event, access_token)
+      ## TODO: delete event in saved file
+      
     
   print('saving personal events to file')
   with open('personal_events_by_user.json', 'w') as file:
@@ -253,20 +266,20 @@ def login_to_st():
 def get_st_technicians(access_token):
   print('Getting ServiceTitan Technicians')
   ## TODO: figure out why the tenant id has to be hard coded to work
-  # SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/{st_tenant_id}/technicians'
-  SERVICETITAN_API_URL = 'https://api.servicetitan.io/settings/v2/tenant/4160781343/technicians'
+  url = f'https://api.servicetitan.io/settings/v2/tenant/{st_tenant_id}/technicians'
+  # url = 'https://api.servicetitan.io/settings/v2/tenant/4160781343/technicians'
 
   headers = {
     'Authorization': access_token,
-    'ST-App-Key': servicetitan_api_key,
-    'Content-Type': 'application/json'
+    'ST-App-Key': servicetitan_api_key
   }
   technicians = []
   offset = 0
   limit = 100
 
   while True:
-    response = requests.get(f"{SERVICETITAN_API_URL}?offset={offset}&limit={limit}", headers=headers)
+    # response = requests.get(f"{SERVICETITAN_API_URL}?offset={offset}&limit={limit}", headers=headers)
+    response = requests.request("GET", f'{url}?offset={offset}&limit={limit}', data={}, headers=headers)
     print(response.text)
     if response.status_code != 200:
       raise Exception(f"ServiceTitan API error: {response.status_code} - {response.text}")
@@ -378,6 +391,32 @@ def update_non_job_event(personal_event, tech_id, access_token):
   print(json.dumps(response.json(), indent=2))
   return response.json()['id']
 
+## Deletes specified non-job event 
+def delete_non_job_event(personal_event, access_token):
+  print('Deleting non-job event in ServiceTitan')
+  user_email = personal_event['google_email']
+  st_event_id = personal_event['servicetitan_id']
+  url = f"https://api.servicetitan.io/dispatch/v2/tenant/{st_tenant_id}/non-job-appointments/{st_event_id}"
+  headers = {
+    "Authorization": access_token, 
+    "ST-App-Key": servicetitan_api_key
+  }
+
+  response = requests.request("DELETE", url, headers=headers)
+
+  ## delete event in file
+  with open('personal_events_by_user.json', 'r') as file:
+    personal_events_by_user = json.load(file)
+    personal_events = personal_events_by_user[user_email]
+    personal_events = [event for event in personal_events if event['servicetitan_id'] != st_event_id]
+    personal_events_by_user[user_email] = personal_events
+    
+  with open('personal_events_by_user.json', 'w') as file:
+    json.dump(personal_events_by_user, file, indent=2)
+
+  print('ST event deleted:')
+  print(json.dumps(response.json(), indent=2))
+
 def match_users_and_techs(google_users, technicians):
   print('Matching Google users with ServiceTitan technicians')
   matches = {}
@@ -452,20 +491,20 @@ if __name__ == "__main__":
   # get_calendars()
 
   # save_personal_events()
-  find_and_add_or_update_events(access_token)
+  # find_and_add_or_update_events(access_token)
 
 
   ## TEST Create new non-job event in ST
-  # st_event_id = create_new_non_job_event({
-  #   "google_id": "_88q38c9k64r48ba388s44b9k6533cba270r30ba26gqk6dq384sj0cpm8o",
-  #   "google_email": "will@amstillroofing.com",
-  #   "created": "2019-12-27T03:59:35.000Z",
-  #   "updated": "2019-12-27T03:59:35.693Z",
-  #   "creator_email": "adam@amstillroofing.com",
-  #   "organizer_email": "adam@amstillroofing.com",
-  #   "summary": "TEST",
-  #   "description": "this is a test",
-  #   "start_dateTime": "2025-06-01T13:00:00-06:00",
-  #   "end_dateTime": "2025-06-01T14:00:00-06:00",
-  #   "time_zone": "UTC"
-  # }, access_token)
+  st_event_id = create_new_non_job_event({
+    "google_id": "_88q38c9k64r48ba388s44b9k6533cba270r30ba26gqk6dq384sj0cpm8o",
+    "google_email": "will@amstillroofing.com",
+    "created": "2025-06-17T03:59:35.000Z",
+    "updated": "2025-06-17T03:59:35.693Z",
+    "creator_email": "will@amstillroofing.com",
+    "organizer_email": "will@amstillroofing.com",
+    "summary": "TEST",
+    "description": "this is a test",
+    "start_dateTime": "2025-06-01T13:00:00-06:00",
+    "end_dateTime": "2025-06-01T14:00:00-06:00",
+    "time_zone": "UTC"
+  }, access_token)
