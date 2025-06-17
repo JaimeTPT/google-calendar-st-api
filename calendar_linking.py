@@ -181,65 +181,66 @@ def find_and_add_or_update_events(access_token):
   with open('user_matches.json') as file:
     user_matches = json.load(file)
   ## iterate through active google users
-  ## TODO: CHANGE BACK TO FOR LOOP HERE 
   for user_email in user_matches.keys():
-    pass
-  user_email = 'adam@amstillroofing.com'
-  ## get events for each user from google
-  user_personal_events = find_personal_events(user_email)
-  # user_personal_events = [{
-  #   "google_id": "1",
-  #   "servicetitan_id": "511688354",
-  #   "google_email": "adam@amstillroofing.com",
-  #   "created": "2025-06-16T03:59:35.000Z",
-  #   "updated": "2025-06-16T03:59:35.693Z",
-  #   "creator_email": "adam@amstillroofing.com",
-  #   "organizer_email": "adam@amstillroofing.com",
-  #   "summary": "Doctors apt ",
-  #   'description': '',
-  #   "start_dateTime": "2025-06-15T14:30:00-06:00",
-  #   "end_dateTime": "2025-06-15T15:40:00-06:00",
-  #   "time_zone": "UTC"
-  # }
-  # ]
-  ## compare events from google with saved events for user
-  for event in user_personal_events:
-    # event_already_saved = False
-    event_found = False
-    for saved_event in saved_personal_events_by_user[user_email]:
-      if event['google_id'] == saved_event['google_id']:
-        event_found = True
-        break
-    ## if event isn't already saved, create the event in ST (function also saves event to file)
-    if not event_found:
-      print(f'Creating event in ServiceTitan and saving to file')
-      st_id = create_new_non_job_event(event, access_token)
-      ## Save event to saved_personal_events with st_id
-      saved_event['servicetitan_id'] = st_id
-      saved_personal_events_by_user[user_email].append(event)
-      
-    ## if event is saved, check datetime to see if it changed, and if so, change in ST (function also updates saved event)
-    elif event['start_dateTime'] != saved_event['start_dateTime'] or event['end_dateTime'] != saved_event['end_dateTime']:
-      print(f'Updating event in ServiceTitan and saving to file')
-      tech_id = user_matches[user_email]['servicetitan_id']
-      update_non_job_event(event, tech_id, access_token)
-      for personal_event in saved_personal_events_by_user[user_email]:
-        if event['google_id'] == personal_event['google_id']:
-          personal_event["summary"] = event['summary']
-          personal_event["start_dateTime"] = event['start_dateTime']
-          personal_event["end_dateTime"] = event['end_dateTime']
+    if user_email != 'colton@amstillroofing.com': continue
+    print(user_email)
+    ## get events for each user from google
+    user_personal_events = find_personal_events(user_email)
+    ## compare events from google with saved events for user
+    for event in user_personal_events:
+      # print(f'Event ID: {event['google_id']}')
+      # event_already_saved = False
+      event_found = False
+      for saved_event in saved_personal_events_by_user[user_email]:
+        if event['google_id'] == saved_event['google_id']:
+          event_found = True
+          break
+      ## if event isn't already saved, create the event in ST (function also saves event to file)
+      if not event_found:
+        print(f'Creating event in ServiceTitan and saving to file')
+        st_id = create_new_non_job_event(event, access_token)
+        ## Save event to saved_personal_events with st_id
+        saved_event['servicetitan_id'] = st_id
+        ## DEBUG
+        print('ServiceTitan ID')
+        print(st_id)
+        saved_personal_events_by_user[user_email].append(event)
+        
+      ## if event is saved, check datetime to see if it changed, and if so, change in ST (function also updates saved event)
+      elif not event['all_day']:
+        if event['start_dateTime'] != saved_event['start_dateTime'] or event['end_dateTime'] != saved_event['end_dateTime']:
+          print(f'Updating event in ServiceTitan and saving to file')
+          tech_id = user_matches[user_email]['servicetitan_id']
+          update_non_job_event(event, tech_id, access_token)
+          for personal_event in saved_personal_events_by_user[user_email]:
+            if event['google_id'] == personal_event['google_id']:
+              personal_event["summary"] = event['summary']
+              personal_event["start_dateTime"] = event['start_dateTime']
+              personal_event["end_dateTime"] = event['end_dateTime']
+      elif event['all_day']:
+        if event['start_date'] != saved_event['start_date'] or event['end_date'] != saved_event['end_date']:
+          print(f'Updating event in ServiceTitan and saving to file')
+          tech_id = user_matches[user_email]['servicetitan_id']
+          update_non_job_event(event, tech_id, access_token)
+          for personal_event in saved_personal_events_by_user[user_email]:
+            if event['google_id'] == personal_event['google_id']:
+              personal_event["summary"] = event['summary']
+              personal_event["start_date"] = event['start_date']
+              personal_event["end_date"] = event['end_date']
+    
+    ## delete saved events that are no longer in google (have been deleted in google)
+    print('Google events:')
+    print(user_personal_events)
+    print('ST events')
+    print(saved_personal_events_by_user[user_email])
+    valid_ids = [event['google_id'] for event in user_personal_events]
+    st_events_to_delete = [event for event in saved_personal_events_by_user[user_email] if event['google_id'] not in valid_ids]
+    print([event['google_id'] for event in st_events_to_delete])
+    saved_personal_events_by_user[user_email] = [event for event in saved_personal_events_by_user[user_email] if event['google_id'] in valid_ids]
 
-  for saved_event in saved_personal_events_by_user[user_email]:
-    saved_event_in_google = False
-    for google_event in user_personal_events:
-      if google_event['google_id'] == saved_event['google_id']:
-        saved_event_in_google = True
-    if not saved_event_in_google:
-      ## TODO: delete event in ST
-      # st_event_id = saved_event['servicetitan_id']
-      delete_non_job_event(saved_event, access_token)
-      ## TODO: delete event in saved file
-      
+    for event in st_events_to_delete:
+      print(f'Deleting ST event {event['servicetitan_id']}')
+      delete_non_job_event(event, access_token)
     
   print('saving personal events to file')
   with open('personal_events_by_user.json', 'w') as file:
@@ -353,6 +354,7 @@ def create_new_non_job_event(personal_event, access_token):
 
 ## Updates non-job event with new data
 def update_non_job_event(personal_event, tech_id, access_token):
+  ## TODO: figure out how to deal with all day events
   print('Updating non-job event in ServiceTitan')
   user_email = personal_event['google_email']
   st_event_id = personal_event['servicetitan_id']
@@ -491,20 +493,34 @@ if __name__ == "__main__":
   # get_calendars()
 
   # save_personal_events()
-  # find_and_add_or_update_events(access_token)
+  find_and_add_or_update_events(access_token)
 
 
   ## TEST Create new non-job event in ST
-  st_event_id = create_new_non_job_event({
-    "google_id": "_88q38c9k64r48ba388s44b9k6533cba270r30ba26gqk6dq384sj0cpm8o",
-    "google_email": "will@amstillroofing.com",
-    "created": "2025-06-17T03:59:35.000Z",
-    "updated": "2025-06-17T03:59:35.693Z",
-    "creator_email": "will@amstillroofing.com",
-    "organizer_email": "will@amstillroofing.com",
-    "summary": "TEST",
-    "description": "this is a test",
-    "start_dateTime": "2025-06-01T13:00:00-06:00",
-    "end_dateTime": "2025-06-01T14:00:00-06:00",
-    "time_zone": "UTC"
-  }, access_token)
+  # print(f'Creating event in ServiceTitan and saving to file')
+  # user_email = 'colton@amstillroofing.com'
+  # new_event = {
+  #   "google_id": "_88q38c9k64r48ba388s44b9k6533cba270r30ba26gqk6dq384sj0cpm8o",
+  #   "google_email": user_email,
+  #   "created": "2025-06-17T03:59:35.000Z",
+  #   "updated": "2025-06-17T03:59:35.693Z",
+  #   "creator_email": user_email,
+  #   "organizer_email": user_email,
+  #   "summary": "TEST",
+  #   "description": "this is a test",
+  #   "start_dateTime": "2025-06-01T13:00:00-06:00",
+  #   "end_dateTime": "2025-06-01T14:00:00-06:00",
+  #   "time_zone": "UTC"
+  # }
+  # st_event_id = create_new_non_job_event(new_event, access_token)
+  # ## Save event to saved_personal_events with st_id
+  # new_event['servicetitan_id'] = st_event_id
+  # ## DEBUG
+  # print('ServiceTitan ID')
+  # print(st_event_id)
+  # print('saving personal events to file')
+  # with open('personal_events_by_user.json', 'r') as file:
+  #   saved_personal_events_by_user = json.load(file)
+  # saved_personal_events_by_user[user_email].append(new_event)
+  # with open('personal_events_by_user.json', 'w') as file:
+  #   json.dump(saved_personal_events_by_user, file, indent=2)
